@@ -1,0 +1,168 @@
+---
+output: 
+  html_document: 
+    keep_md: yes
+---
+# Exploration of Storms and other severe weather events and their impacts on Public Health and Economy in the United States.  
+
+## Snopsys
+
+This report aims to calculate the total damage on both Public Health and Economy in the United States. Severe weather events can cause fatalities, injuries as well as it can negatively impact Economy of countries.  
+This project involves exploring the U.S. National Oceanic and Atmospheric Administration's (NOAA) storm database. This database tracks characteristics of major storms and weather events in the United States, including when and where they occur, as well as estimates of any fatalities, injuries, and property damage.
+
+## Data Processing
+
+The raw data was obtained from [Storm Data](https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2).  
+
+There is also some documentation of the database available. Here you will find how some of the variables are constructed/defined:  
+* National Weather service. [Storm Data Documentation](https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2Fpd01016005curr.pdf)  
+* National Climatic Data Center Storm Events. [FAQ](https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2FNCDC%20Storm%20Events-FAQ%20Page.pdf)
+
+### Reading in the data
+The following 3 R codes are downloading the raw data set and readin in it to the global environment for further analysis.
+```{r cache=TRUE}
+URL <- "https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2"
+download.file(url = URL, destfile = "stormdata.csv.bz2")
+data <- read.csv("stormdata.csv.bz2")
+```
+
+Now we will do some basic exploration in order to get an overview of the data set.
+
+```{r}
+dim(data)
+```
+As we can see the dataset has 902297 rows (observations) and 37 columns.  
+Lets do some more exploration.
+
+```{r}
+str(data)
+head(data)
+```
+### Processing the raw data and making it more suitable for further analysis.
+First, lets subset the values and variables that we will use and ignore the variables that we do not need for this project. The new subset data will be overwritten on the initial dataset.
+```{r}
+require(dplyr)
+data <- data %>%
+        select(EVTYPE, FATALITIES:CROPDMGEXP)
+```
+
+Different levels of the "EVTYPE" variable seems rather messy and it obviously needs some transformation. For example, levels like "Winter Storm", "Winter Storms" "Winter Weather" can be grouped into one factor called "Winter". We will create a new variable called "Event" that will contain all the grouped factors and add it to the data. The next codes will do the job:
+
+```{r}
+data <- data %>%
+        mutate(event = "other")
+data$event[grepl("tornado", data$EVTYPE, ignore.case = T)] <- "Tornado"
+data$event[grepl("hail", data$EVTYPE, ignore.case = T)] <- "Hail"
+data$event[grepl("heat", data$EVTYPE, ignore.case = T)] <- "Heat"
+data$event[grepl("flood", data$EVTYPE, ignore.case = T)] <- "Flood"
+data$event[grepl("wind", data$EVTYPE, ignore.case = T)] <- "Wind"
+data$event[grepl("storm", data$EVTYPE, ignore.case = T)] <- "Storm"
+data$event[grepl("snow", data$EVTYPE, ignore.case = T)] <- "Snow"
+data$event[grepl("winter", data$EVTYPE, ignore.case = T)] <- "Winter"
+data$event[grepl("rain", data$EVTYPE, ignore.case = T)] <- "Rain"
+with(data, table(event))
+```
+Now we can see that the new Event variable looks tidier and more informative than the original variable.  
+
+```{r}
+unique(levels(as.factor(data$PROPDMGEXP)))
+unique(levels(as.factor(data$CROPDMGEXP)))
+```
+We will need to calculate the property as well as agricultural damage caused by severe weather events. "Crop and property" damage variables look very confusing with K meaning 10^3, M meaning 10^6 etc. Therefore, we will convert them into real numbers so we can do some math.
+
+```{r}
+data$PROPDMGEXP <- as.character(data$PROPDMGEXP)
+data$PROPDMGEXP[!grepl("K|M|B", data$PROPDMGEXP, ignore.case = T)] <- 0
+data$PROPDMGEXP[grepl("K", data$PROPDMGEXP, ignore.case = T)] <- 10^3
+data$PROPDMGEXP[grepl("M", data$PROPDMGEXP, ignore.case = T)] <- 10^6
+data$PROPDMGEXP[grepl("B", data$PROPDMGEXP, ignore.case = T)] <- 10^9
+data$PROPDMGEXP <- as.numeric(data$PROPDMGEXP)
+unique(levels(as.factor(data$PROPDMGEXP)))
+```
+Now we see that the numbers look more calculation-friendly. Let's do the same for Crop Damage variable!
+
+```{r}
+data$CROPDMGEXP <- as.character(data$CROPDMGEXP)
+data$CROPDMGEXP[!grepl("k|m|b", data$CROPDMGEXP, ignore.case = T)] <- 0
+data$CROPDMGEXP[grepl("k", data$CROPDMGEXP, ignore.case = T)] <- 10^3
+data$CROPDMGEXP[grepl("m", data$CROPDMGEXP, ignore.case = T)] <- 10^6
+data$CROPDMGEXP[grepl("b", data$CROPDMGEXP, ignore.case = T)] <- 10^9
+data$CROPDMGEXP <- as.numeric(data$CROPDMGEXP)
+```
+
+# Results
+
+## What is the impact of Severe weather events on Public health in the United States?
+
+Severe weather events can either cause fatalities or injuries on public. Our data contains information about the event type and how many fatality/injury they caused in the U.S.  
+We will sum the number of people who died from these events and who got injured as a result of severe events. We will create a new variable called "Total.health.cases".
+
+```{r}
+data <- data %>%
+        mutate(Total.health.cases = FATALITIES + INJURIES)
+```
+
+Now let's aggregate the total health cases by each event:
+
+```{r}
+agg <- data %>%
+        group_by(event) %>%
+        summarise(Total.health.cases = sum(Total.health.cases))
+agg <- agg[order(agg$Total.health.cases, decreasing = T), ]
+agg
+```
+
+Let's visualize the result!
+
+```{r}
+require(ggplot2)
+g <- ggplot(data = agg, aes(x = event, y = Total.health.cases))
+g + geom_bar(stat = "identity", fill = "darkgreen", col = "black") +
+        xlab("Events") +
+        ylab("Total Health cases") +
+        ggtitle("Total Health cases caused by Severe Weather Events in the U.S") +
+        theme(plot.title = element_text(hjust = 0.5)) +
+        geom_label(label = agg$Total.health.cases, col = "black", fontface = "bold")
+
+```
+
+We can clearly see that the most dangerous Severe Event type was Tornado with 97043 cases reported.
+
+## What is the impact of Severe weather events on Economy in the United States?
+
+Let's calculate the total economic damage by adding Crop damage and Property damage together!
+
+```{r}
+names(data)
+data <- data %>%
+        mutate(total.economic.damage = (PROPDMG * PROPDMGEXP) + (CROPDMGEXP * CROPDMG))
+```
+
+Now, we will aggregate total economic damage by each event.
+
+```{r}
+agg2 <- data %>%
+        group_by(event) %>%
+        summarise(total.economic.damage = sum(total.economic.damage)) %>%
+        arrange(desc(total.economic.damage))
+agg2
+```
+
+The next few R codes will generate the final graph that will explain the result of our analysis.
+
+```{r}
+g2 <- ggplot(data = agg2, aes(x = event, y = total.economic.damage))
+g2 + geom_bar(stat = "identity", fill = "darkgreen", col = "black") +
+        xlab("Event") +
+        ylab("Total Economic Damage (in Dollars)") +
+        ggtitle("Total Economic Damage Caused by Severe Weather Events in the U.S") +
+        theme(plot.title = element_text(hjust = 0.5))
+        
+```
+
+Our result indicates that the event Flood caused the most damage to the Economy in the U.S.
+
+## Conclusion
+
+Our short analysis indicated that Tornado was the most impactful event for the Public health, while Flood damaged the Economy more than any other events reported.
+
